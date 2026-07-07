@@ -22,9 +22,9 @@ class GlazzioTilesSpider(Spider):
     }
 
     custom_settings = {
-        "CONCURRENT_REQUESTS": 1,
-        'DOWNLOAD_DELAY': 2,
-        'RANDOMIZE_DOWNLOAD_DELAY': True,
+        "CONCURRENT_REQUESTS": 4,
+        # 'DOWNLOAD_DELAY': 2,
+        # 'RANDOMIZE_DOWNLOAD_DELAY': True,
 
         'RETRY_TIMES': 5,
         'RETRY_HTTP_CODES': [500, 502, 503, 504, 400, 403, 408, 429, 410],
@@ -52,7 +52,7 @@ class GlazzioTilesSpider(Spider):
         yield Request(url=self.start_url, headers=self.headers, callback=self.parse)
 
     def parse(self, response, **kwargs):
-        for sku in self.input_skus[:1]:
+        for sku in self.input_skus:
 
             if sku in self.scraped_skus:
                 self.logger.info(f"Skipping duplicate SKU: {sku}")
@@ -75,15 +75,40 @@ class GlazzioTilesSpider(Spider):
         item['-'] = ''
         item['--'] = ''
 
-        # for specs in response.css('ul.product-specs--list li'):
-        #     specs_key = specs.css('span.product-specs--list__item-title::text').get('').replace(':', '').strip()
-        #     specs_value = specs.css('span.product-specs--list__item-description::text').get('').replace(':', '').strip()
-        #
-        #     item[specs_key] = specs_value
-        #
-        # item['About Product'] = response.css('.product__description ::text').get('').strip()
+        for specs in response.css('td.ItemDetailTopAlign tr'):
+            specs_key = specs.css('.ItemDetailattribute_hdr::text').get('').strip()
+            specs_value = specs.css('.ItemDetailattribute::text').get('').strip() or specs.css('#txtItemDetailQuantity0::attr(value)').get('').strip()
 
-        item["image_urls"] = []
+            item[specs_key] = specs_value
+
+
+        carousel_images = [f"https://www.glazziotiles.com{img}" for img in
+                           response.css("#mycarousel li img::attr(src)").getall() if img and img.strip()]
+
+        if carousel_images:
+            images = carousel_images
+        else:
+            img = response.css("#imgItemDetail::attr(src)").get('')
+            images = [f"https://www.glazziotiles.com{img}"] if img and img.strip() else []
+
+        item["image_urls"] = images
+
+        try:
+            secondary_specs = response.xpath('//td[@class="ItemDetailImageTD"]/parent::tr/following-sibling::tr[2]/td//text()').getall()
+
+            for spec in secondary_specs:
+                spec = spec.strip()
+
+                if not spec:
+                    continue
+
+                if ':' in spec:
+                    key, value = spec.split(':', 1)
+                    item[key.strip()] = value.strip()
+
+        except Exception as e:
+            self.logger.warning(f"Failed to parse secondary specs: {e}")
+
         item['Url'] = response.url
 
         self.scraped_skus.add(sku_number)
@@ -142,7 +167,7 @@ class GlazzioTilesSpider(Spider):
         return {}
 
     def closed(self, reason):
-        missing_skus = self.input_skus - self.scraped_skus
+        missing_skus = set(self.input_skus) - self.scraped_skus
 
         for sku in missing_skus:
             product = next((p for p in self.input_products if p.get(self.input_sku_column_name, "") == sku), {})
@@ -182,7 +207,7 @@ class GlazzioTilesSpider(Spider):
 
             ws.append(row)
 
-        output_file = f'output/HappyFloors_{datetime.now().strftime("%d%m%Y%H%M")}.xlsx'
+        output_file = f'output/GlazzioTiles_{datetime.now().strftime("%d%m%Y%H%M")}.xlsx'
         wb.save(output_file)
 
         self.logger.info(f"Saved {len(self.items)} items to {output_file}")
