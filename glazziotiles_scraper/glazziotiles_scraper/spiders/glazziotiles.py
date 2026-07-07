@@ -22,7 +22,7 @@ class GlazzioTilesSpider(Spider):
     }
 
     custom_settings = {
-        "CONCURRENT_REQUESTS": 4,
+        "CONCURRENT_REQUESTS": 16,
         # 'DOWNLOAD_DELAY': 2,
         # 'RANDOMIZE_DOWNLOAD_DELAY': True,
 
